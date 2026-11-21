@@ -19,7 +19,7 @@ CARGAR_ENV := if [ -f .env ]; then set -a; . ./.env; set +a; fi;
 # Avisa si aún no se instalaron las dependencias.
 VERIFICAR_VENV := if [ ! -x $(VENV_PY) ]; then echo "No existe $(VENV). Ejecute primero: make install"; exit 1; fi;
 
-.PHONY: help venv install install-dev datos run verificar test \
+.PHONY: help venv install install-dev datos run iniciar verificar test \
         respaldar simular-error restaurar \
         docker-build docker-run compose-up compose-down compose-verificar clean
 
@@ -46,6 +46,9 @@ install-dev: $(VENV_PY) ## Instala las dependencias de pruebas (requirements-dev
 	$(VENV_PY) -m pip install -r requirements-dev.txt
 
 # --- Ejecución local -----------------------------------------------------------
+
+iniciar: ## Levanta backend + interfaz web (http://127.0.0.1:3000) con un comando
+	$(PYTHON) iniciar.py
 
 datos: ## Prepara la copia de trabajo de los datos (data/pedidos.json)
 	@if [ -f data/pedidos.json ]; then echo "data/pedidos.json ya existe; no se modifica."; \
