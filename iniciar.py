@@ -8,6 +8,7 @@ La primera vez crea .venv, instala requirements.txt y prepara data/pedidos.json.
 Ctrl+C detiene los dos servidores.
 """
 import argparse
+import os
 import socket
 import subprocess
 import sys
@@ -40,6 +41,28 @@ def preparar_entorno():
     if not (RAIZ / "data" / "pedidos.json").exists():
         paso("Preparando la copia de trabajo data/pedidos.json (solo la primera vez)")
         subprocess.run([PYTHON, RAIZ / "scripts" / "datos.py", "preparar"], check=True)
+
+
+def entorno_con_env():
+    """Entorno actual más las variables de .env (LOGFIRE_TOKEN, ...); lo ya definido en el entorno manda.
+
+    Sin LOGFIRE_TOKEN el backend responde igual, pero no envía trazas a Logfire.
+    """
+    entorno = dict(os.environ)
+    archivo = RAIZ / ".env"
+    if archivo.is_file():
+        for linea in archivo.read_text(encoding="utf-8").splitlines():
+            linea = linea.strip()
+            if linea.startswith("export "):
+                linea = linea[len("export "):].lstrip()
+            if not linea or linea.startswith("#"):
+                continue
+            clave, separador, valor = linea.partition("=")
+            if separador and clave.strip() and not entorno.get(clave.strip()):
+                entorno[clave.strip()] = valor.strip().strip("'\"")
+    if not entorno.get("LOGFIRE_TOKEN"):
+        paso("Aviso: no hay LOGFIRE_TOKEN (ni en el entorno ni en .env); las trazas no se enviarán a Logfire")
+    return entorno
 
 
 def puerto_ocupado(puerto):
@@ -85,6 +108,7 @@ def main():
         backend = subprocess.Popen(
             [PYTHON, RAIZ / "scripts" / "ejecutar_local.py", "--puerto", str(args.puerto_api), "--id", "local-1"],
             cwd=RAIZ,
+            env=entorno_con_env(),
         )
         procesos.append(backend)
         if not esperar(api + "/health", backend):
