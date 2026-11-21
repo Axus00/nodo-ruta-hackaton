@@ -25,31 +25,35 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route = self.path.split("?", 1)[0]
         if route == "/pedidos":
-            return self.responder_pedidos()
-        if route not in ("/", "/health"):
+            return self.responder_trazado(route, lambda data: {"instancia": INSTANCE, **data})
+        if route == "/health":
+            return self.responder_trazado(
+                route, lambda data: {"estado": "ok", "instancia": INSTANCE, "version_datos": data.get("version")}
+            )
+        if route != "/":
             status, response = 404, {"error": "Ruta no disponible", "instancia": INSTANCE}
         else:
             try:
-                data = leer_datos()
+                leer_datos()
                 status = 200
-                if route == "/health":
-                    response = {"estado": "ok", "instancia": INSTANCE, "version_datos": data.get("version")}
-                else:
-                    response = {"servicio": "Nodo Ruta - caso ficticio", "instancia": INSTANCE, "rutas": ["/health", "/pedidos"]}
+                response = {"servicio": "Nodo Ruta - caso ficticio", "instancia": INSTANCE, "rutas": ["/health", "/pedidos"]}
             except ERRORES_DATOS:
                 status, response = 503, {"estado": "error_datos", "instancia": INSTANCE}
         self.responder(status, response)
 
-    def responder_pedidos(self):
-        # Única ruta trazada: la consulta de pedidos es la operación de negocio que se quiere seguir.
-        atributos = {"http.request.method": "GET", "url.path": "/pedidos", "http.route": "/pedidos", "instancia": INSTANCE}
-        with logfire.span("GET /pedidos", _span_kind=SpanKind.SERVER, **atributos) as span:
+    def responder_trazado(self, route, armar_respuesta):
+        # Rutas trazadas: /pedidos (consulta de negocio) y /health (salud de la instancia y de sus datos).
+        # Ambas leen los datos, así que comparten la misma estructura de traza.
+        atributos = {"http.request.method": "GET", "url.path": route, "http.route": route, "instancia": INSTANCE}
+        # El nombre se arma fuera de la llamada: logfire inspecciona los f-strings y usaría "GET {route}" como nombre.
+        nombre = f"GET {route}"
+        with logfire.span(nombre, _span_name=nombre, _span_kind=SpanKind.SERVER, **atributos) as span:
             try:
                 with logfire.span("Leer datos de pedidos") as lectura:
                     data = leer_datos()
                     lectura.set_attribute("pedidos.version", data.get("version"))
                     lectura.set_attribute("pedidos.total", len(data["pedidos"]))
-                status, response = 200, {"instancia": INSTANCE, **data}
+                status, response = 200, armar_respuesta(data)
             except ERRORES_DATOS as error:
                 # El span hijo ya registró la excepción; aquí se marca la solicitud como fallida.
                 status, response = 503, {"estado": "error_datos", "instancia": INSTANCE}

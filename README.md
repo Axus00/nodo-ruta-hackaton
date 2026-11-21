@@ -207,13 +207,13 @@ flowchart LR
 
 ```text
 .
-├── app.py                     # Servicio HTTP: /, /health y /pedidos (trazado con Logfire)
+├── app.py                     # Servicio HTTP: /, /health y /pedidos (/health y /pedidos trazados con Logfire)
 ├── pedidos.json               # Datos ficticios (versión + lista de pedidos)
 ├── requirements.txt           # Dependencias del servicio (logfire)
 ├── requirements-dev.txt       # Dependencias de pruebas (servicio + httpx)
 ├── Dockerfile                 # Imagen del servicio (puerto 8080)
 ├── tests/
-│   └── test_e2e_logfire.py    # Prueba e2e: /pedidos genera una traza en Logfire
+│   └── test_e2e_logfire.py    # Prueba e2e: /pedidos y /health generan trazas en Logfire
 ├── scripts/
 │   ├── datos.py               # Preparar, respaldar, simular error y restaurar datos
 │   ├── ejecutar_local.py      # Levantar una instancia local
@@ -257,17 +257,18 @@ python scripts/verificar_servicio.py --esperadas app1,app2
 | Ruta | Respuesta |
 | --- | --- |
 | `GET /` | Nombre del servicio, instancia y rutas disponibles |
-| `GET /health` | `estado`, `instancia` y `version_datos`; `503` si los datos son inválidos |
+| `GET /health` | `estado`, `instancia` y `version_datos`; `503` si los datos son inválidos; cabecera `X-Trace-Id` |
 | `GET /pedidos` | Instancia que responde, versión y lista de pedidos; cabecera `X-Trace-Id` |
 
 ## Trazabilidad con Logfire
 
-Primer entregable del [Paso 1](#paso-1--visibilidad-del-servicio): cada `GET /pedidos` genera una traza en [Pydantic Logfire](https://pydantic.dev/docs/logfire/) con el servicio `nodo-ruta`.
+Primer entregable del [Paso 1](#paso-1--visibilidad-del-servicio): cada `GET /pedidos` y cada `GET /health` generan una traza en [Pydantic Logfire](https://pydantic.dev/docs/logfire/) con el servicio `nodo-ruta`.
 
-- **Span `GET /pedidos`** (raíz): `http.request.method`, `url.path`, `http.route`, `http.response.status_code` e `instancia`.
+- **Span `GET /pedidos` o `GET /health`** (raíz): `http.request.method`, `url.path`, `http.route`, `http.response.status_code` e `instancia`.
 - **Span `Leer datos de pedidos`** (hijo): `pedidos.version` y `pedidos.total`.
 - Si los datos son inválidos, la respuesta sigue siendo `503`, pero la traza queda marcada como error y el span hijo registra la excepción.
-- Solo se traza `/pedidos`: es la consulta de negocio que se quiere seguir. `/` y `/health` no se trazan para no llenar Logfire con los chequeos periódicos de salud del balanceador.
+- Se trazan `/pedidos` (la consulta de negocio) y `/health` (la salud de cada instancia y de sus datos), así un `503` de salud queda registrado con su causa. `/` no se traza.
+- Los chequeos periódicos (por ejemplo, el `healthcheck` de Docker Compose) también generan trazas de `/health`; en Logfire se pueden filtrar con `span_name = 'GET /health'`.
 
 | Variable | Uso |
 | --- | --- |
@@ -282,7 +283,7 @@ docker build -t nodo-ruta .
 docker run -p 8080:8080 -e LOGFIRE_TOKEN -e INSTANCE_ID=app1 nodo-ruta   # el token se pasa al ejecutar, nunca va en la imagen
 ```
 
-La cabecera **`X-Trace-Id`** de cada respuesta de `/pedidos` es el identificador de la traza (32 caracteres hexadecimales). Operaciones puede buscarla en Logfire con `trace_id = '<valor>'` para ver qué instancia atendió la solicitud, cuánto tardó y si falló. Al recibir `SIGTERM` (`docker stop`), el servicio se detiene de forma ordenada y envía las trazas pendientes.
+La cabecera **`X-Trace-Id`** de cada respuesta de `/pedidos` y `/health` es el identificador de la traza (32 caracteres hexadecimales). Operaciones puede buscarla en Logfire con `trace_id = '<valor>'` para ver qué instancia atendió la solicitud, cuánto tardó y si falló. Al recibir `SIGTERM` (`docker stop`), el servicio se detiene de forma ordenada y envía las trazas pendientes.
 
 **Prueba de extremo a extremo** (envía una traza real y la consulta en la API de Logfire). Requiere `LOGFIRE_TOKEN` y un token de lectura `LOGFIRE_READ_TOKEN`, en el entorno o en un archivo `.env` en la raíz (ignorado por git). Sin ellos, la prueba se omite.
 
