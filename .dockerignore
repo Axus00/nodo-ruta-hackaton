@@ -4,7 +4,6 @@ __pycache__/
 *.pdf
 respaldos/
 evidencias/
-data/
 .git/
 .env
 .venv/
