@@ -212,6 +212,7 @@ flowchart LR
 ├── requirements.txt           # Dependencias del servicio (logfire)
 ├── requirements-dev.txt       # Dependencias de pruebas (servicio + httpx)
 ├── Dockerfile                 # Imagen del servicio (puerto 8080)
+├── frontend/                  # Página de consulta (HTML/CSS/JS) + servidor local con reenvío a la API
 ├── tests/
 │   └── test_e2e_logfire.py    # Prueba e2e: /pedidos y /health generan trazas en Logfire
 ├── scripts/
@@ -244,7 +245,12 @@ python scripts/ejecutar_local.py --puerto 8080 --id local-1
 
 # 3. En otra terminal, verificar el servicio y guardar evidencia
 python scripts/verificar_servicio.py http://127.0.0.1:8080/pedidos --peticiones 10
+
+# 4. (Opcional) Interfaz web de consulta en http://127.0.0.1:3000
+python frontend/servidor.py --api http://127.0.0.1:8080
 ```
+
+La interfaz web y cómo conectarla a otro backend se describen en [`frontend/README.md`](frontend/README.md).
 
 Con Docker Compose (dos instancias detrás de NGINX):
 
