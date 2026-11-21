@@ -22,6 +22,7 @@ La fuente editable de los diagramas está en [`docs/architecture/c4-sequence-dia
   - [Paso 3 · Nodo Ruta en crecimiento](#paso-3--nodo-ruta-en-crecimiento)
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Ejecución local](#ejecución-local)
+- [Trazabilidad con Logfire](#trazabilidad-con-logfire)
 - [Respaldo y recuperación de datos](#respaldo-y-recuperación-de-datos)
 
 ---
@@ -206,9 +207,13 @@ flowchart LR
 
 ```text
 .
-├── app.py                     # Servicio HTTP: /, /health y /pedidos
+├── app.py                     # Servicio HTTP: /, /health y /pedidos (trazado con Logfire)
 ├── pedidos.json               # Datos ficticios (versión + lista de pedidos)
+├── requirements.txt           # Dependencias del servicio (logfire)
+├── requirements-dev.txt       # Dependencias de pruebas (servicio + httpx)
 ├── Dockerfile                 # Imagen del servicio (puerto 8080)
+├── tests/
+│   └── test_e2e_logfire.py    # Prueba e2e: /pedidos genera una traza en Logfire
 ├── scripts/
 │   ├── datos.py               # Preparar, respaldar, simular error y restaurar datos
 │   ├── ejecutar_local.py      # Levantar una instancia local
@@ -224,9 +229,13 @@ flowchart LR
 
 ## Ejecución local
 
-Requiere Python 3.
+Requiere Python 3.10 o superior y las dependencias de `requirements.txt`.
 
 ```bash
+# 0. Instalar dependencias en un entorno virtual
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+
 # 1. Preparar la copia de trabajo de los datos (data/pedidos.json)
 python scripts/datos.py preparar
 
@@ -249,7 +258,38 @@ python scripts/verificar_servicio.py --esperadas app1,app2
 | --- | --- |
 | `GET /` | Nombre del servicio, instancia y rutas disponibles |
 | `GET /health` | `estado`, `instancia` y `version_datos`; `503` si los datos son inválidos |
-| `GET /pedidos` | Instancia que responde, versión y lista de pedidos |
+| `GET /pedidos` | Instancia que responde, versión y lista de pedidos; cabecera `X-Trace-Id` |
+
+## Trazabilidad con Logfire
+
+Primer entregable del [Paso 1](#paso-1--visibilidad-del-servicio): cada `GET /pedidos` genera una traza en [Pydantic Logfire](https://pydantic.dev/docs/logfire/) con el servicio `nodo-ruta`.
+
+- **Span `GET /pedidos`** (raíz): `http.request.method`, `url.path`, `http.route`, `http.response.status_code` e `instancia`.
+- **Span `Leer datos de pedidos`** (hijo): `pedidos.version` y `pedidos.total`.
+- Si los datos son inválidos, la respuesta sigue siendo `503`, pero la traza queda marcada como error y el span hijo registra la excepción.
+- Solo se traza `/pedidos`: es la consulta de negocio que se quiere seguir. `/` y `/health` no se trazan para no llenar Logfire con los chequeos periódicos de salud del balanceador.
+
+| Variable | Uso |
+| --- | --- |
+| `LOGFIRE_TOKEN` | Token de escritura del proyecto. Sin él, el servicio funciona igual y no envía nada. |
+| `LOGFIRE_ENVIRONMENT` | Opcional. Etiqueta el entorno (por ejemplo, `local` o `produccion`) para filtrar en Logfire. |
+
+```bash
+set -a; . ./.env; set +a          # carga LOGFIRE_TOKEN desde .env sin escribirlo en la terminal
+python scripts/ejecutar_local.py --puerto 8080 --id local-1
+
+docker build -t nodo-ruta .
+docker run -p 8080:8080 -e LOGFIRE_TOKEN -e INSTANCE_ID=app1 nodo-ruta   # el token se pasa al ejecutar, nunca va en la imagen
+```
+
+La cabecera **`X-Trace-Id`** de cada respuesta de `/pedidos` es el identificador de la traza (32 caracteres hexadecimales). Operaciones puede buscarla en Logfire con `trace_id = '<valor>'` para ver qué instancia atendió la solicitud, cuánto tardó y si falló. Al recibir `SIGTERM` (`docker stop`), el servicio se detiene de forma ordenada y envía las trazas pendientes.
+
+**Prueba de extremo a extremo** (envía una traza real y la consulta en la API de Logfire). Requiere `LOGFIRE_TOKEN` y un token de lectura `LOGFIRE_READ_TOKEN`, en el entorno o en un archivo `.env` en la raíz (ignorado por git). Sin ellos, la prueba se omite.
+
+```bash
+pip install -r requirements-dev.txt
+python -m unittest tests.test_e2e_logfire -v
+```
 
 ## Respaldo y recuperación de datos
 
