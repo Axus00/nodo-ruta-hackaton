@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nodo Ruta · Consulta de entregas</title>
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="marca">
+      <span class="logo" aria-hidden="true">NR</span>
+      <div>
+        <h1>Nodo Ruta</h1>
+        <p>Consulta de entregas</p>
+      </div>
+    </div>
+    <span class="etiqueta">Caso ficticio · datos sintéticos</span>
+  </header>
+
+  <main>
+    <section class="estado" aria-label="Estado del servicio" aria-live="polite">
+      <dl>
+        <div>
+          <dt>Servicio</dt>
+          <dd id="servicio" class="servicio"><span class="punto"></span><span id="servicio-texto">Consultando…</span></dd>
+        </div>
+        <div>
+          <dt>Instancia que respondió</dt>
+          <dd id="instancia">—</dd>
+        </div>
+        <div>
+          <dt>Versión de datos</dt>
+          <dd id="version">—</dd>
+        </div>
+        <div>
+          <dt>Última consulta</dt>
+          <dd id="hora">—</dd>
+        </div>
+        <div>
+          <dt>Tiempo de respuesta</dt>
+          <dd id="tiempo">—</dd>
+        </div>
+      </dl>
+    </section>
+
+    <div id="aviso" class="aviso" role="alert" hidden></div>
+
+    <section class="controles" aria-label="Filtros y acciones">
+      <div id="filtros" class="filtros" role="group" aria-label="Filtrar por estado"></div>
+      <div class="acciones">
+        <input id="buscar" type="search" placeholder="Buscar pedido o zona" aria-label="Buscar pedido o zona">
+        <label class="auto"><input id="auto" type="checkbox"> Cada 5 s</label>
+        <button id="actualizar" type="button">Actualizar</button>
+      </div>
+    </section>
+
+    <table>
+      <caption id="leyenda">Sin datos todavía</caption>
+      <thead>
+        <tr>
+          <th scope="col">Pedido</th>
+          <th scope="col">Zona</th>
+          <th scope="col">Estado</th>
+        </tr>
+      </thead>
+      <tbody id="filas"></tbody>
+    </table>
+    <p id="vacio" class="vacio" hidden>Ningún pedido coincide con el filtro.</p>
+
+    <section class="registro" aria-label="Registro de esta sesión">
+      <dl>
+        <div>
+          <dt>Instancias que han respondido</dt>
+          <dd id="instancias">—</dd>
+        </div>
+        <div>
+          <dt>Traza de la última consulta</dt>
+          <dd><code id="traza">—</code></dd>
+        </div>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="pie">
+    API: <code id="api"></code> · Las instancias y los tiempos se registran solo en esta pestaña.
+  </footer>
+
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
