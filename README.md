@@ -208,6 +208,7 @@ flowchart LR
 ```text
 .
 ├── app.py                     # Servicio HTTP: /, /health y /pedidos (/health y /pedidos trazados con Logfire)
+├── iniciar.py                 # Levanta backend + interfaz web en local con un solo comando
 ├── pedidos.json               # Datos ficticios (versión + lista de pedidos)
 ├── requirements.txt           # Dependencias del servicio (logfire)
 ├── requirements-dev.txt       # Dependencias de pruebas (servicio + httpx)
@@ -231,6 +232,14 @@ flowchart LR
 ## Ejecución local
 
 Requiere Python 3.10 o superior y las dependencias de `requirements.txt`.
+
+**Todo con un comando** (backend en `8080` + interfaz web en `3000`). La primera vez instala dependencias y prepara los datos; `Ctrl+C` detiene todo:
+
+```bash
+python iniciar.py      # en Mac/Linux también: make iniciar
+```
+
+Paso a paso:
 
 ```bash
 # 0. Instalar dependencias en un entorno virtual

@@ -72,7 +72,7 @@ def main():
     Manejador.api = args.api.rstrip("/")
     # Solo escucha en 127.0.0.1: el frontend local no queda expuesto a la red.
     servidor = ThreadingHTTPServer(("127.0.0.1", args.puerto), partial(Manejador, directory=str(CARPETA)))
-    print(f"Frontend en http://127.0.0.1:{args.puerto}  ·  API: {Manejador.api}", flush=True)
+    print(f"Frontend en http://127.0.0.1:{args.puerto}  (API: {Manejador.api})", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

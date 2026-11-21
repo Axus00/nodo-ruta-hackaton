@@ -4,19 +4,54 @@ Página para consultar las entregas y ver el estado del servicio. Es HTML, CSS y
 
 ## 1. Levantarlo
 
-Con el backend corriendo (por defecto en `http://127.0.0.1:8080`):
+**Todo con un comando**, desde la carpeta del proyecto:
 
 ```powershell
-python frontend/servidor.py
+python iniciar.py
 ```
 
-Abrir <http://127.0.0.1:3000>. En Windows, si `python` no existe, usar `py`.
+En Mac/Linux también sirve `make iniciar`. Levanta el backend (`8080`) y el frontend (`3000`) y abre el navegador. La primera vez crea `.venv`, instala dependencias y prepara `data/pedidos.json`. `Ctrl+C` detiene todo. En Windows, si `python` no existe, usar `py`.
 
-Si el backend está en otra dirección:
+**Por separado**, si se necesita: dos terminales de PowerShell en la carpeta del proyecto.
+
+Terminal 1, backend en el puerto 8080. Solo la primera vez:
 
 ```powershell
-python frontend/servidor.py --api http://127.0.0.1:8080
+python -m venv .venv
 ```
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+```powershell
+.venv\Scripts\python.exe scripts\datos.py preparar
+```
+
+Después, cada vez:
+
+```powershell
+.venv\Scripts\python.exe scripts\ejecutar_local.py --puerto 8080 --id local-1
+```
+
+Terminal 2, frontend en el puerto 3000:
+
+```powershell
+python frontend\servidor.py
+```
+
+Abrir <http://127.0.0.1:3000>.
+
+## Puertos
+
+| Puerto | Qué es | Cómo cambiarlo |
+| --- | --- | --- |
+| `8080` | Backend, o NGINX si se usa `ayuda_opcional` | `python iniciar.py --puerto-api 8081`. Por separado: `--puerto 8081` en el backend y `--api http://127.0.0.1:8081` en el frontend |
+| `3000` | Frontend | `python iniciar.py --puerto-web 3001`. Por separado: `python frontend\servidor.py --puerto 3001` |
+
+- Con Docker Compose (`ayuda_opcional`), NGINX también queda en el `8080`. El frontend se conecta sin cambios y muestra si respondió `app1` o `app2`.
+- Los dos servidores solo escuchan en `127.0.0.1`, así que solo abren en el mismo PC. No hace falta abrir puertos en el firewall.
+- Si sale el error de puerto en uso (`WinError 10048`), otro programa ya usa ese puerto. Se cierra la otra terminal o se cambia el puerto como dice la tabla.
 
 ## 2. Conectarlo a otro backend
 
