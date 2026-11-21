@@ -1,0 +1,3 @@
+-r requirements.txt
+# Solo para la prueba e2e (tests/test_e2e_logfire.py): el cliente de consultas de Logfire usa httpx.
+httpx>=0.27,<1

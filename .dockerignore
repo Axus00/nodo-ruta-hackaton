@@ -6,3 +6,6 @@ respaldos/
 evidencias/
 data/
 .git/
+.env
+.venv/
+.logfire/
