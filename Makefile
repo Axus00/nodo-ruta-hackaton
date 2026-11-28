@@ -4,15 +4,17 @@
 .DEFAULT_GOAL := help
 
 # --- Variables (se pueden sobrescribir: make run PUERTO=9000 ID=local-2) ---
-PYTHON     ?= python3
+# Primer Python 3.10+ que encuentre: en Mac, python3 suele ser el 3.9 del sistema y logfire 6 no se instala ahí.
+PYTHON     ?= $(shell for p in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do \
+                command -v $$p >/dev/null 2>&1 && { echo $$p; break; }; done)
 VENV       ?= .venv
 VENV_PY    := $(VENV)/bin/python
 PUERTO     ?= 8080
 ID         ?= local-1
 PETICIONES ?= 10
-ESPERADAS  ?= app1,app2
+ESPERADAS  ?= instancia-1,instancia-2
 IMAGEN     ?= nodo-ruta
-COMPOSE    := docker compose -f ayuda_opcional/compose.yaml
+COMPOSE    := docker compose
 
 # Carga las variables de .env (LOGFIRE_TOKEN, ...) solo si el archivo existe.
 CARGAR_ENV := if [ -f .env ]; then set -a; . ./.env; set +a; fi;
@@ -90,7 +92,7 @@ compose-up: datos ## Levanta dos instancias detrás de NGINX con Docker Compose
 compose-down: ## Detiene y elimina los contenedores de Docker Compose
 	$(COMPOSE) down
 
-compose-verificar: ## Verifica que el balanceo reparte entre app1 y app2
+compose-verificar: ## Verifica que el balanceo reparte entre instancia-1 e instancia-2
 	$(PYTHON) scripts/verificar_servicio.py --peticiones $(PETICIONES) --esperadas $(ESPERADAS) \
 		--salida evidencias/compose_$$(date +%Y%m%d_%H%M%S).json
 

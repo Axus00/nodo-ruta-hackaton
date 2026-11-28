@@ -177,3 +177,7 @@ pyrightconfig.json
 
 # Logfire (credenciales locales del CLI)
 .logfire/
+
+# Datos de trabajo y respaldos locales (scripts/datos.py)
+data/
+respaldos/

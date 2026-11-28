@@ -46,10 +46,10 @@ Abrir <http://127.0.0.1:3000>.
 
 | Puerto | Qué es | Cómo cambiarlo |
 | --- | --- | --- |
-| `8080` | Backend, o NGINX si se usa `ayuda_opcional` | `python iniciar.py --puerto-api 8081`. Por separado: `--puerto 8081` en el backend y `--api http://127.0.0.1:8081` en el frontend |
+| `8080` | Backend, o NGINX si se usa Docker Compose | `python iniciar.py --puerto-api 8081`. Por separado: `--puerto 8081` en el backend y `--api http://127.0.0.1:8081` en el frontend |
 | `3000` | Frontend | `python iniciar.py --puerto-web 3001`. Por separado: `python frontend\servidor.py --puerto 3001` |
 
-- Con Docker Compose (`ayuda_opcional`), NGINX también queda en el `8080`. El frontend se conecta sin cambios y muestra si respondió `app1` o `app2`.
+- Con Docker Compose (`make compose-up`), NGINX también queda en el `8080`. El frontend se conecta sin cambios y muestra si respondió `instancia-1` o `instancia-2`. Como comparten puerto, no se puede usar `iniciar.py` a la vez: levanten solo el frontend con `python frontend/servidor.py`.
 - Los dos servidores solo escuchan en `127.0.0.1`, así que solo abren en el mismo PC. No hace falta abrir puertos en el firewall.
 - Si sale el error de puerto en uso (`WinError 10048`), otro programa ya usa ese puerto. Se cierra la otra terminal o se cambia el puerto como dice la tabla.
 
