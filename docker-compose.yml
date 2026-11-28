@@ -1,3 +1,23 @@
+# Nodo Ruta: dos instancias detrás de NGINX en http://127.0.0.1:8080
+# Antes de levantarlo: python scripts/datos.py preparar  (o simplemente: make compose-up)
+
+# Datos fuera del contenedor: las dos instancias leen data/pedidos.json del equipo anfitrión,
+# en solo lectura. Así un respaldo restaurado con scripts/datos.py llega a ambas sin reconstruir.
+x-datos: &datos
+  type: bind
+  source: ./data/pedidos.json
+  target: /data/pedidos.json
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-salud: &salud
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
+  interval: 5s
+  timeout: 3s
+  retries: 3
+  start_period: 5s
+
 services:
   instancia-1:
     build: .
@@ -5,6 +25,9 @@ services:
     environment:
       INSTANCE_ID: instancia-1
       LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
+    volumes:
+      - *datos
+    healthcheck: *salud
     restart: unless-stopped
 
   instancia-2:
@@ -13,16 +36,22 @@ services:
     environment:
       INSTANCE_ID: instancia-2
       LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
+    volumes:
+      - *datos
+    healthcheck: *salud
     restart: unless-stopped
 
   nginx:
     image: nginx:alpine
     container_name: nginx-lb
+    # Solo en este equipo y en el 8080, que es donde lo buscan el frontend y verificar_servicio.py.
     ports:
-      - "80:80"
+      - "127.0.0.1:8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - instancia-1
-      - instancia-2
+      instancia-1:
+        condition: service_healthy
+      instancia-2:
+        condition: service_healthy
     restart: unless-stopped

@@ -22,16 +22,33 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent
 VENV = RAIZ / ".venv"
 PYTHON = VENV / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+# logfire 6 (requirements.txt) no se instala en Python 3.9, que es el python3 que trae macOS.
+VERSION_MINIMA = (3, 10)
 
 
 def paso(texto):
     print(f"> {texto}", flush=True)
 
 
+def version_de(python):
+    """(mayor, menor) del intérprete indicado, o (0, 0) si no se puede ejecutar."""
+    salida = subprocess.run(
+        [python, "-c", "import sys; print(*sys.version_info[:2])"], capture_output=True, text=True
+    )
+    try:
+        return tuple(int(n) for n in salida.stdout.split())
+    except ValueError:
+        return (0, 0)
+
+
 def preparar_entorno():
     if not PYTHON.exists():
         paso("Creando el entorno virtual .venv (solo la primera vez)")
         venv.create(VENV, with_pip=True)
+    elif version_de(PYTHON) < VERSION_MINIMA:
+        # Un .venv creado antes con Python 3.9 nunca podrá instalar las dependencias: se rehace.
+        paso("El .venv existente usa Python anterior a 3.10; se crea de nuevo con este Python")
+        venv.create(VENV, with_pip=True, clear=True)
     if subprocess.run([PYTHON, "-c", "import logfire"], capture_output=True).returncode != 0:
         paso("Instalando requirements.txt (solo la primera vez, tarda unos minutos)")
         subprocess.run(
@@ -94,9 +111,19 @@ def main():
     parser.add_argument("--sin-navegador", action="store_true", help="no abrir el navegador al terminar")
     args = parser.parse_args()
 
+    if sys.version_info < VERSION_MINIMA:
+        sys.exit(
+            f"Nodo Ruta necesita Python 3.10 o superior y este es {sys.version.split()[0]}.\n"
+            "En Mac/Linux usen `make iniciar` (busca solo un Python 3.10+) o, por ejemplo, `python3.12 iniciar.py`.\n"
+            "Si no tienen uno: https://www.python.org/downloads/ (en Mac también: brew install python@3.12)."
+        )
+
     for puerto, opcion in ((args.puerto_api, "--puerto-api"), (args.puerto_web, "--puerto-web")):
         if puerto_ocupado(puerto):
-            sys.exit(f"El puerto {puerto} ya está en uso. Cierren lo que lo usa o cambien el puerto con {opcion}.")
+            sys.exit(
+                f"El puerto {puerto} ya está en uso. Cierren lo que lo usa o cambien el puerto con {opcion}.\n"
+                "Si es el Docker Compose del proyecto (también usa el 8080), deténganlo con: make compose-down"
+            )
 
     preparar_entorno()
 
