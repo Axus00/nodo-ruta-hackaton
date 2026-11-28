@@ -67,12 +67,15 @@ def main():
     parser.add_argument("--api", default=os.environ.get("NODO_RUTA_API", "http://127.0.0.1:8080"),
                         help="dirección de la API (por defecto http://127.0.0.1:8080 o la variable NODO_RUTA_API)")
     parser.add_argument("--puerto", type=int, default=3000, help="puerto del frontend (por defecto 3000)")
+    parser.add_argument("--host", default=os.environ.get("NODO_RUTA_HOST", "127.0.0.1"),
+                        help="interfaz donde escuchar (por defecto 127.0.0.1; en Docker usar 0.0.0.0)")
     args = parser.parse_args()
 
     Manejador.api = args.api.rstrip("/")
-    # Solo escucha en 127.0.0.1: el frontend local no queda expuesto a la red.
-    servidor = ThreadingHTTPServer(("127.0.0.1", args.puerto), partial(Manejador, directory=str(CARPETA)))
-    print(f"Frontend en http://127.0.0.1:{args.puerto}  (API: {Manejador.api})", flush=True)
+    # Por defecto solo escucha en 127.0.0.1: el frontend local no queda expuesto a la red.
+    # En un contenedor se pasa --host 0.0.0.0 (o NODO_RUTA_HOST) para aceptar el puerto publicado.
+    servidor = ThreadingHTTPServer((args.host, args.puerto), partial(Manejador, directory=str(CARPETA)))
+    print(f"Frontend en http://{args.host}:{args.puerto}  (API: {Manejador.api})", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

@@ -1,28 +1,181 @@
+# Arquitectura:
+#   - Traefik: único punto de entrada del BACKEND. Balancea entre las réplicas
+#     del servicio "backend" y no publica ni enruta el frontend.
+#   - backend: una sola definición, sin container_name, escalable a N réplicas.
+#     Por defecto arranca con 2 réplicas activas; la tercera se activa bajo
+#     demanda con --scale o con scripts/autoscaler.py (reserva).
+#   - frontend: servidor estático que publica el puerto 3000 y reenvía /api/*
+#     al backend a través de Traefik.
+#
+#   docker compose up --build -d
+#   http://localhost:3000                 # frontend
+#   http://localhost/health               # backend (Traefik)
+#   http://localhost:8080/dashboard/      # panel de Traefik (solo localhost)
+#
+# LOGFIRE_TOKEN (opcional) se toma del entorno o de un archivo .env.
+
+name: nodo-ruta
+
 services:
-  instancia-1:
-    build: .
-    container_name: instancia-1
-    environment:
-      INSTANCE_ID: instancia-1
-      LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
-    restart: unless-stopped
-
-  instancia-2:
-    build: .
-    container_name: instancia-2
-    environment:
-      INSTANCE_ID: instancia-2
-      LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    container_name: nginx-lb
+  traefik:
+    # v3.6: compatible con daemons Docker recientes (API >= 1.40).
+    # Con v3.2 el proveedor Docker falla en Docker 29 ("client version 1.24 is too old").
+    image: traefik:v3.6
+    command:
+      # --- Sin telemetría ni chequeo de versiones (útil en redes cerradas) ---
+      - "--global.checknewversion=false"
+      - "--global.sendanonymoususage=false"
+      # --- Proveedor Docker: descubre contenedores por sus labels ---
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.watch=true"
+      # --- Punto de entrada HTTP del backend ---
+      - "--entrypoints.web.address=:80"
+      # --- Panel y API. "insecure" = sin TLS: solo para desarrollo local ---
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      # --- Endpoint de salud que usa el healthcheck de abajo ---
+      - "--ping=true"
+      # --- Observabilidad ---
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.fields.headers.names.X-Forwarded-For=keep"
     ports:
-      - "80:80"
+      - "80:80"                 # tráfico del backend
+      - "127.0.0.1:8080:8080"   # dashboard + API, expuesto solo en localhost
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - instancia-1
-      - instancia-2
+      # Solo lectura: Traefik necesita ver los contenedores, no modificarlos.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
+    networks:
+      - nodo-ruta-net
+
+  backend:
+    build: .
+    image: nodo-ruta:local   # una sola imagen compartida por todas las réplicas
+    environment:
+      LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
+      # Conexión a la base (mismos valores por defecto que el servicio db).
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-estudia_logitica}
+      POSTGRES_USER: ${POSTGRES_USER:-admin_estudia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin_etudia_123.}
+      # Sin INSTANCE_ID: cada réplica usa su hostname de contenedor y así se
+      # distingue en las respuestas qué réplica atendió la petición.
+    # 2 réplicas activas por defecto. Para activar la reserva:
+    #   docker compose up -d --scale backend=3
+    deploy:
+      replicas: 2
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck: &salud-backend
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    labels: &etiquetas-backend
+      # Activa el descubrimiento de este contenedor (exposedbydefault=false).
+      - "traefik.enable=true"
+      # Red por la que Traefik debe hablar con el backend.
+      - "traefik.docker.network=nodo-ruta-net"
+
+      # Router: todo el tráfico del entrypoint "web" va al servicio backend.
+      - "traefik.http.routers.backend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.middlewares=cors-dev@docker,seguridad@docker,compresion@docker"
+
+      # Servicio: todas las réplicas declaran el mismo nombre, así Traefik las
+      # agrupa en un único balanceador y reparte la carga entre las que estén
+      # sanas. Al escalar, las réplicas nuevas se suman solas.
+      - "traefik.http.services.backend.loadbalancer.server.port=8080"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.interval=10s"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.timeout=3s"
+
+      # Middleware CORS (comodín "*", no "**").
+      - "traefik.http.middlewares.cors-dev.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.cors-dev.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors-dev.headers.accesscontrolallowheaders=Content-Type,Authorization,X-Requested-With"
+      - "traefik.http.middlewares.cors-dev.headers.accesscontrolmaxage=86400"
+
+      # Middleware de cabeceras de seguridad.
+      - "traefik.http.middlewares.seguridad.headers.contenttypenosniff=true"
+      - "traefik.http.middlewares.seguridad.headers.framedeny=true"
+      - "traefik.http.middlewares.seguridad.headers.browserxssfilter=true"
+      - "traefik.http.middlewares.seguridad.headers.stsseconds=31536000"
+
+      # Middleware de compresión gzip.
+      - "traefik.http.middlewares.compresion.compress=true"
+    restart: unless-stopped
+    networks:
+      - nodo-ruta-net
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      # Mismos datos que docker-compose_ol.yml; se pueden sobrescribir en .env.
+      POSTGRES_USER: ${POSTGRES_USER:-admin_estudia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin_etudia_123.}
+      POSTGRES_DB: ${POSTGRES_DB:-estudia_logitica}
+      TZ: ${TZ:-America/Bogota}
+    ports:
+      # Solo en localhost, para inspeccionar la base con psql/DBeaver.
+      # 5433 en el host evita chocar con un PostgreSQL local en 5432.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # Se ejecutan solo la primera vez, cuando db_data está vacío.
+      # El orden lo da el prefijo numérico.
+      - ./DDL.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
+      - ./INSERT.sql:/docker-entrypoint-initdb.d/02-insert.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - nodo-ruta-net
+
+  frontend:
+    build: ./frontend
+    image: nodo-ruta-frontend:local
+    environment:
+      # El front reenvía /api/* al backend a través de Traefik (balanceo incluido).
+      NODO_RUTA_API: http://traefik:80
+      NODO_RUTA_HOST: 0.0.0.0
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      traefik:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nodo-ruta-net
+    # Sin labels de Traefik a propósito: Traefik solo atiende al backend.
+    # El frontend se publica directamente en el puerto 3000.
+
+networks:
+  nodo-ruta-net:
+    name: nodo-ruta-net
+    driver: bridge
+
+volumes:
+  db_data:
+    driver: local

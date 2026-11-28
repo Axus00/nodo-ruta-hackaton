@@ -63,16 +63,41 @@ class TrazaPedidosEnLogfire(unittest.TestCase):
             raise unittest.SkipTest(
                 "Se requieren LOGFIRE_TOKEN y LOGFIRE_READ_TOKEN (entorno o .env en la raíz) para la prueba e2e contra Logfire"
             )
+        cls.db = cls.config_db()
+        if "DATABASE_URL" not in cls.db:
+            try:
+                with socket.create_connection((cls.db["POSTGRES_HOST"], int(cls.db["POSTGRES_PORT"])), timeout=2):
+                    pass
+            except OSError:
+                raise unittest.SkipTest(
+                    "Se requiere PostgreSQL en "
+                    f"{cls.db['POSTGRES_HOST']}:{cls.db['POSTGRES_PORT']} (por ejemplo: docker compose up -d db)"
+                )
 
-    def iniciar_servidor(self, data_path):
+    @staticmethod
+    def config_db():
+        """Conexión a la base: DATABASE_URL o POSTGRES_* (por defecto, la publicada por Compose)."""
+        url = os.environ.get("DATABASE_URL") or leer_variable("DATABASE_URL")
+        if url:
+            return {"DATABASE_URL": url}
+        return {
+            "POSTGRES_HOST": os.environ.get("POSTGRES_HOST") or "127.0.0.1",
+            "POSTGRES_PORT": os.environ.get("POSTGRES_PORT") or "5433",
+            "POSTGRES_DB": os.environ.get("POSTGRES_DB") or "estudia_logitica",
+            "POSTGRES_USER": os.environ.get("POSTGRES_USER") or "admin_estudia",
+            "POSTGRES_PASSWORD": os.environ.get("POSTGRES_PASSWORD") or "admin_etudia_123.",
+        }
+
+    def iniciar_servidor(self, extra_env=None):
         instancia = f"e2e-{uuid.uuid4()}"
         puerto = puerto_libre()
         carpeta = tempfile.TemporaryDirectory()
         self.addCleanup(carpeta.cleanup)
         log = open(Path(carpeta.name) / "servidor.log", "w+b")
         self.addCleanup(log.close)
-        env = {**os.environ, "DATA_PATH": str(data_path), "INSTANCE_ID": instancia, "PORT": str(puerto),
+        env = {**os.environ, **self.config_db(), "INSTANCE_ID": instancia, "PORT": str(puerto),
                "LOGFIRE_TOKEN": self.token, "PYTHONUNBUFFERED": "1"}
+        env.update(extra_env or {})
         env.pop("LOGFIRE_READ_TOKEN", None)  # el servicio solo necesita el token de escritura
         proceso = subprocess.Popen([sys.executable, str(RAIZ / "app.py")], cwd=carpeta.name, env=env,
                                    stdout=log, stderr=subprocess.STDOUT)
@@ -87,7 +112,7 @@ class TrazaPedidosEnLogfire(unittest.TestCase):
                 urllib.request.urlopen(f"{url}/health", timeout=1).close()
                 return proceso, url, instancia
             except urllib.error.HTTPError:
-                return proceso, url, instancia  # responde (p. ej. 503 con datos inválidos): ya está escuchando
+                return proceso, url, instancia  # responde (p. ej. 503 si la base no está): ya está escuchando
             except OSError:
                 time.sleep(0.2)
         self.fail(f"El servidor no respondió /health a tiempo:\n{self.salida()}")
@@ -153,7 +178,7 @@ class TrazaPedidosEnLogfire(unittest.TestCase):
 
     def test_pedidos_genera_traza_en_logfire(self):
         inicio = datetime.now(timezone.utc)
-        proceso, url, instancia = self.iniciar_servidor(RAIZ / "pedidos.json")
+        proceso, url, instancia = self.iniciar_servidor()
 
         status, cabeceras, cuerpo = self.consultar(url, "/pedidos")
         self.assertEqual(status, 200)
@@ -178,7 +203,7 @@ class TrazaPedidosEnLogfire(unittest.TestCase):
 
     def test_error_de_datos_marca_la_traza_como_error(self):
         inicio = datetime.now(timezone.utc)
-        proceso, url, instancia = self.iniciar_servidor(self.datos_invalidos())
+        proceso, url, instancia = self.iniciar_servidor({"DATABASE_URL": "postgresql://x:x@127.0.0.1:1/x"})
 
         status, cabeceras, cuerpo = self.consultar(url, "/pedidos")
         self.assertEqual(status, 503)
@@ -209,7 +234,7 @@ class TrazaPedidosEnLogfire(unittest.TestCase):
 
     def test_health_genera_traza_en_logfire(self):
         inicio = datetime.now(timezone.utc)
-        proceso, url, instancia = self.iniciar_servidor(RAIZ / "pedidos.json")
+        proceso, url, instancia = self.iniciar_servidor()
 
         status, cabeceras, cuerpo = self.consultar(url, "/health")
         self.assertEqual(status, 200)
@@ -232,7 +257,7 @@ class TrazaPedidosEnLogfire(unittest.TestCase):
 
     def test_health_con_error_de_datos_marca_la_traza_como_error(self):
         inicio = datetime.now(timezone.utc)
-        proceso, url, instancia = self.iniciar_servidor(self.datos_invalidos())
+        proceso, url, instancia = self.iniciar_servidor({"DATABASE_URL": "postgresql://x:x@127.0.0.1:1/x"})
 
         status, cabeceras, cuerpo = self.consultar(url, "/health")
         self.assertEqual(status, 503)

@@ -1,25 +1,58 @@
 import json
 import os
 import signal
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 import logfire
+import psycopg
 from opentelemetry.trace import SpanKind
+from psycopg.rows import dict_row
 
-DATA = Path(os.environ.get("DATA_PATH", "pedidos.json"))
-INSTANCE = os.environ.get("INSTANCE_ID", "instancia-ejemplo")
-ERRORES_DATOS = (OSError, ValueError, TypeError, AttributeError)
+# Sin INSTANCE_ID (por ejemplo con réplicas de Compose) se usa el hostname del
+# contenedor, que Docker genera único: así se distingue qué réplica respondió.
+INSTANCE = os.environ.get("INSTANCE_ID") or socket.gethostname()
+ERRORES_DATOS = (psycopg.Error, OSError, ValueError, TypeError, AttributeError)
 
 # Las trazas solo se envían si existe LOGFIRE_TOKEN; sin token el servicio responde igual y no envía nada.
 # console=False mantiene la salida estándar del servicio igual que antes: las trazas se consultan en Logfire.
 logfire.configure(service_name="nodo-ruta", send_to_logfire="if-token-present", console=False)
 
+
+def conectar():
+    """Abre una conexión corta a PostgreSQL (una por petición: el servidor usa hilos).
+
+    Prioriza DATABASE_URL; si no existe, arma la conexión con las variables POSTGRES_*.
+    Los timeouts evitan que una base lenta bloquee las peticiones.
+    """
+    comun = {
+        "connect_timeout": 3,
+        "application_name": "nodo-ruta",
+        "options": "-c statement_timeout=3000",
+        "row_factory": dict_row,
+    }
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return psycopg.connect(url, **comun)
+    return psycopg.connect(
+        host=os.environ.get("POSTGRES_HOST", "db"),
+        port=int(os.environ.get("POSTGRES_PORT", "5432")),
+        dbname=os.environ.get("POSTGRES_DB", "estudia_logitica"),
+        user=os.environ.get("POSTGRES_USER", "admin_estudia"),
+        password=os.environ.get("POSTGRES_PASSWORD", "admin_etudia_123."),
+        **comun,
+    )
+
+
 def leer_datos():
-    data = json.loads(DATA.read_text(encoding="utf-8"))
-    if not isinstance(data.get("pedidos"), list):
-        raise ValueError("Formato de datos inválido")
-    return data
+    """Consulta los pedidos en la tabla `pedidos` y devuelve la misma forma que antes el JSON."""
+    with conectar() as conexion, conexion.cursor() as cursor:
+        cursor.execute("SELECT id, zona, estado FROM pedidos ORDER BY id")
+        pedidos = cursor.fetchall()
+        version = conexion.info.dbname
+    if not isinstance(pedidos, list):
+        raise ValueError("Respuesta inesperada de la base de datos")
+    return {"version": version, "pedidos": pedidos}
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
