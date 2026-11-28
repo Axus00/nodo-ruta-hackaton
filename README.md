@@ -213,6 +213,8 @@ flowchart LR
 ├── requirements.txt           # Dependencias del servicio (logfire)
 ├── requirements-dev.txt       # Dependencias de pruebas (servicio + httpx)
 ├── Dockerfile                 # Imagen del servicio (puerto 8080)
+├── docker-compose.yml         # MVP: dos instancias + NGINX en 127.0.0.1:8080, datos montados desde data/
+├── nginx.conf                 # Balanceo entre instancias, reintentos y detección pasiva de fallos
 ├── frontend/                  # Página de consulta (HTML/CSS/JS) + servidor local con reenvío a la API
 ├── tests/
 │   └── test_e2e_logfire.py    # Prueba e2e: /pedidos y /health generan trazas en Logfire
@@ -221,8 +223,8 @@ flowchart LR
 │   ├── ejecutar_local.py      # Levantar una instancia local
 │   └── verificar_servicio.py  # Consultas secuenciales y registro de evidencia
 ├── ayuda_opcional/
-│   ├── compose.yaml           # Referencia: dos instancias + proxy NGINX
-│   └── nginx.conf             # Balanceo con reintentos y detección pasiva de fallos
+│   ├── compose.yaml           # Referencia del curso: dos instancias + proxy NGINX
+│   └── nginx.conf             # Referencia del curso para el proxy
 ├── docs/architecture/         # Diagramas C4 y de secuencia (PNG + draw.io)
 ├── GUIA_ESTUDIANTE.md         # Guía del reto
 ├── PLANTILLA_EVIDENCIAS.md    # Plantilla para documentar pruebas
@@ -231,13 +233,15 @@ flowchart LR
 
 ## Ejecución local
 
-Requiere Python 3.10 o superior y las dependencias de `requirements.txt`.
+Requiere Python 3.10 o superior y las dependencias de `requirements.txt`. En Mac, `python3` suele ser el 3.9 del sistema: `make` busca solo un Python 3.10+ (`python3.12`, `python3.11`…); sin `make`, usen ese ejecutable directamente.
 
 **Todo con un comando** (backend en `8080` + interfaz web en `3000`). La primera vez instala dependencias y prepara los datos; `Ctrl+C` detiene todo:
 
 ```bash
 python iniciar.py      # en Mac/Linux también: make iniciar
 ```
+
+`iniciar.py` y Docker Compose usan el mismo puerto `8080`: detengan uno (`make compose-down`) antes de levantar el otro.
 
 Paso a paso:
 
@@ -261,13 +265,16 @@ python frontend/servidor.py --api http://127.0.0.1:8080
 
 La interfaz web y cómo conectarla a otro backend se describen en [`frontend/README.md`](frontend/README.md).
 
-Con Docker Compose (dos instancias detrás de NGINX):
+Con Docker Compose (dos instancias detrás de NGINX en `http://127.0.0.1:8080`). Las instancias leen `data/pedidos.json` del equipo en solo lectura, así que un respaldo restaurado con `scripts/datos.py` les llega sin reconstruir la imagen:
 
 ```bash
-python scripts/datos.py preparar
-docker compose -f ayuda_opcional/compose.yaml up --build
-python scripts/verificar_servicio.py --esperadas app1,app2
+make compose-up          # prepara data/pedidos.json si falta y levanta instancia-1, instancia-2 y NGINX
+make compose-verificar   # en otra terminal: comprueba que responden las dos y guarda evidencia
+python frontend/servidor.py   # (opcional) interfaz web en http://127.0.0.1:3000 contra el balanceador
+make compose-down        # detiene todo
 ```
+
+Si los datos son inválidos, NGINX entrega al cliente el `503 {"estado": "error_datos"}` de la instancia sin reintentar en la otra: las dos leen el mismo archivo.
 
 | Ruta | Respuesta |
 | --- | --- |
